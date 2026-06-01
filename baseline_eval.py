@@ -1,9 +1,10 @@
 """Baseline POGEMA eval for Follower only (no wandb, no FollowerLite).
 
 FollowerLite is skipped because its C++ module needs onnxruntime C++ headers
-that are not installed. wandb is disabled. Results + views are saved per-config
-into experiments/<folder>/ as each folder completes, so partial progress
-survives an interruption.
+that are not installed. This runner has no wandb dependency (the toolbox's
+save_evaluation_results imports wandb, so we inline the zip bundling instead).
+Results + views are saved per-config into experiments/<folder>/ as each folder
+completes, so partial progress survives an interruption.
 
 Usage:
     python baseline_eval.py                      # all 5 folders, full seeds
@@ -11,16 +12,15 @@ Usage:
     python baseline_eval.py --seeds=3            # all folders, first 3 seeds only
     python baseline_eval.py --seeds=3 02-mazes   # combine
 """
+import shutil
 import sys
 from pathlib import Path
 
 import yaml
-import wandb
 
 from pogema import BatchAStarAgent
 from pogema_toolbox.create_env import create_env_base, Environment
 from pogema_toolbox.evaluator import evaluation
-from pogema_toolbox.eval_utils import save_evaluation_results
 from pogema_toolbox.registry import ToolboxRegistry
 
 from follower.inference import FollowerInference, FollowerInferenceConfig
@@ -37,10 +37,6 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None):
-    # wandb in disabled mode: save_evaluation_results() calls wandb.save(), which
-    # errors unless wandb.init() has run. Disabled mode makes it a safe no-op.
-    wandb.init(project='pogema-toolbox', mode='disabled', group='baseline')
-
     ToolboxRegistry.register_env('Pogema-v0', create_env_base, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
@@ -67,7 +63,9 @@ def main(folders, max_seeds=None):
         print(f'>>> {folder}: algorithms {list(cfg["algorithms"])}, '
               f'seeds {cfg["environment"].get("seed")}', flush=True)
         evaluation(cfg, eval_dir=eval_dir)
-        save_evaluation_results(eval_dir)
+        # Bundle the folder's results into a zip (same as the toolbox helper, but
+        # without its wandb.save() upload — keeps the runner wandb-free).
+        shutil.make_archive(str(eval_dir), 'zip', eval_dir)
         print(f'>>> {folder}: DONE', flush=True)
 
 
