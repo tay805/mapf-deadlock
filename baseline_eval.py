@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import yaml
+import wandb
 
 from pogema import BatchAStarAgent
 from pogema_toolbox.create_env import create_env_base, Environment
@@ -36,6 +37,10 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None):
+    # wandb in disabled mode: save_evaluation_results() calls wandb.save(), which
+    # errors unless wandb.init() has run. Disabled mode makes it a safe no-op.
+    wandb.init(project='pogema-toolbox', mode='disabled', group='baseline')
+
     ToolboxRegistry.register_env('Pogema-v0', create_env_base, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(

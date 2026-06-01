@@ -161,3 +161,6 @@ cython_debug/
 follower_cpp/.rendered.*
 follower_cpp/*.so.lock
 follower_cpp/*.so
+
+# eval archive bundles (regenerable from per-folder JSON)
+experiments/*.zip
