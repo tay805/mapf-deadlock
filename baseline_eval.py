@@ -13,10 +13,13 @@ Usage:
     python baseline_eval.py --seeds=3 02-mazes   # combine
 """
 import os
-# Force headless matplotlib BEFORE pogema_toolbox imports it. Otherwise, when run
-# via `conda run` with IPython present, it picks the inline backend and crashes
-# in the plot views with "No module named 'matplotlib_inline'".
-os.environ.setdefault('MPLBACKEND', 'Agg')
+# Force headless matplotlib BEFORE pogema_toolbox imports it. Colab exports
+# MPLBACKEND=<inline backend>, which the `conda run` subprocess inherits; that
+# crashes the plot views with "No module named 'matplotlib_inline'". Hard-assign
+# (not setdefault) to override the inherited value, then pin the backend.
+os.environ['MPLBACKEND'] = 'Agg'
+import matplotlib
+matplotlib.use('Agg')
 
 import shutil
 import sys
