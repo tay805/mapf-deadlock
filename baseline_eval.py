@@ -12,6 +12,12 @@ Usage:
     python baseline_eval.py --seeds=3            # all folders, first 3 seeds only
     python baseline_eval.py --seeds=3 02-mazes   # combine
 """
+import os
+# Force headless matplotlib BEFORE pogema_toolbox imports it. Otherwise, when run
+# via `conda run` with IPython present, it picks the inline backend and crashes
+# in the plot views with "No module named 'matplotlib_inline'".
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 import shutil
 import sys
 from pathlib import Path
