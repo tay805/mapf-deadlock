@@ -166,3 +166,6 @@ follower_cpp/*.so
 experiments/*.zip
 
 .DS_Store
+
+# private working plan (kept outside the repo; this is a safety net)
+PLAN.md
