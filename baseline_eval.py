@@ -11,6 +11,9 @@ Usage:
     python baseline_eval.py 05-warehouse         # one or more specific folders
     python baseline_eval.py --seeds=3            # all folders, first 3 seeds only
     python baseline_eval.py --seeds=3 02-mazes   # combine
+    python baseline_eval.py --out=/content/drive/MyDrive/mapf-deadlock-results
+        # write results to <out>/<folder>/ (e.g. Google Drive) so they persist
+        # instead of landing inside the repo's experiments/<folder>/
 """
 import os
 # Force headless matplotlib BEFORE pogema_toolbox imports it. Colab exports
@@ -45,7 +48,7 @@ ALL_FOLDERS = [
 ]
 
 
-def main(folders, max_seeds=None):
+def main(folders, max_seeds=None, out_dir=None):
     ToolboxRegistry.register_env('Pogema-v0', create_env_base, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
@@ -54,9 +57,13 @@ def main(folders, max_seeds=None):
     with open('env/test-maps.yaml') as f:
         ToolboxRegistry.register_maps(yaml.safe_load(f))
 
+    out_base = Path(out_dir) if out_dir else BASE_PATH
     for folder in folders:
+        # Config is always read from the repo; results are written under out_base
+        # (e.g. a Google Drive folder) so they persist across Colab sessions.
         config_path = BASE_PATH / folder / f'{folder}.yaml'
-        eval_dir = BASE_PATH / folder
+        eval_dir = out_base / folder
+        eval_dir.mkdir(parents=True, exist_ok=True)
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
 
@@ -81,10 +88,13 @@ def main(folders, max_seeds=None):
 if __name__ == '__main__':
     args = sys.argv[1:]
     max_seeds = None
+    out_dir = None
     folders = []
     for a in args:
         if a.startswith('--seeds='):
             max_seeds = int(a.split('=', 1)[1])
+        elif a.startswith('--out='):
+            out_dir = a.split('=', 1)[1]
         else:
             folders.append(a)
-    main(folders or ALL_FOLDERS, max_seeds=max_seeds)
+    main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir)
