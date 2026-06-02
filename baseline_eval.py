@@ -90,11 +90,18 @@ if __name__ == '__main__':
     max_seeds = None
     out_dir = None
     folders = []
-    for a in args:
+    i = 0
+    while i < len(args):  # accept both "--opt=val" and "--opt val" forms
+        a = args[i]
         if a.startswith('--seeds='):
             max_seeds = int(a.split('=', 1)[1])
+        elif a == '--seeds':
+            i += 1; max_seeds = int(args[i])
         elif a.startswith('--out='):
             out_dir = a.split('=', 1)[1]
+        elif a == '--out':
+            i += 1; out_dir = args[i]
         else:
             folders.append(a)
+        i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir)
