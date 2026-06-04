@@ -38,6 +38,14 @@ from pogema_toolbox.registry import ToolboxRegistry
 from follower.inference import FollowerInference, FollowerInferenceConfig
 from follower.preprocessing import follower_preprocessor
 
+from deadlock_metric import DeadlockMetric
+
+
+def create_env_with_deadlock(config):
+    """create_env_base + our DeadlockMetric wrapper (adds deadlock_rate etc. to
+    infos[0]['metrics'], same channel as avg_throughput)."""
+    return DeadlockMetric(create_env_base(config))
+
 BASE_PATH = Path('experiments')
 ALL_FOLDERS = [
     '01-random-20x20',
@@ -48,8 +56,9 @@ ALL_FOLDERS = [
 ]
 
 
-def main(folders, max_seeds=None, out_dir=None):
-    ToolboxRegistry.register_env('Pogema-v0', create_env_base, Environment)
+def main(folders, max_seeds=None, out_dir=None, deadlock=False):
+    env_factory = create_env_with_deadlock if deadlock else create_env_base
+    ToolboxRegistry.register_env('Pogema-v0', env_factory, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
         'Follower', FollowerInference, FollowerInferenceConfig, follower_preprocessor)
@@ -89,6 +98,7 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     max_seeds = None
     out_dir = None
+    deadlock = False
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -101,7 +111,9 @@ if __name__ == '__main__':
             out_dir = a.split('=', 1)[1]
         elif a == '--out':
             i += 1; out_dir = args[i]
+        elif a == '--deadlock':
+            deadlock = True
         else:
             folders.append(a)
         i += 1
-    main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir)
+    main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir, deadlock=deadlock)
