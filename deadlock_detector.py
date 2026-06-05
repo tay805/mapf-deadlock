@@ -24,7 +24,7 @@ import numpy as np
 from follower.preprocessing import (
     FollowerWrapper, CutObservationWrapper, ConcatPositionalFeatures,
 )
-from deadlock_resolver import JamStats, resolve_jams
+from deadlock_resolver import JamStats, resolve_jams, MOVES
 
 
 class DeadlockDetector:
@@ -121,11 +121,12 @@ class DeadlockDetector:
 class FollowerWrapperWithDetector(FollowerWrapper):
     """FollowerWrapper + online DeadlockDetector run right after the planner."""
 
-    def __init__(self, env, config, detector=None, resolve=False):
+    def __init__(self, env, config, detector=None, resolve=False, resolve_mode='waypoint'):
         super().__init__(env, config)
         self.detector = detector or DeadlockDetector()
         self.jam_stats = JamStats()
         self.resolve = resolve
+        self.resolve_mode = resolve_mode   # 'waypoint' (D1) or 'override' (raw action)
         self.last_flagged = None
         self.last_positions = None
         self.last_desired = None
@@ -146,9 +147,9 @@ class FollowerWrapperWithDetector(FollowerWrapper):
         self._resolve_overrides = 0
         self._steps = 0
 
-    def observation(self, observations):
-        observations = super().observation(observations)   # runs planner + mutates obs
-        paths = self.re_plan.get_path()
+    def _run_detector(self, observations, paths):
+        """Update the detector + jam stats from current observations/paths. Stores
+        last_flagged / last_positions / last_desired. Returns the deep-stuck mask."""
         positions, goals, next_wp, dists, on_goal = [], [], [], [], []
         for k, o in enumerate(observations):
             p = tuple(o['xy']); g = tuple(o['target_xy'])
@@ -160,11 +161,8 @@ class FollowerWrapperWithDetector(FollowerWrapper):
             else:
                 next_wp.append(p); dists.append(None if not path else 0)
         self.last_flagged = self.detector.step(positions, goals, next_wp, dists, on_goal)
-        # Clustering/crops/PIBT use grid-frame positions (same frame as obstacles)
-        # so crop boxes/moves are valid; flagged is by agent id, frames don't conflict.
+        # grid-frame positions/desired (same frame as obstacles) for clustering/PIBT.
         grid_positions = [tuple(p) for p in self.grid.get_agents_xy()]
-        # Desired next cell per agent = grid pos + planner's first step (path[1]-path[0],
-        # frame-independent). Guard: only a unit step, and not onto an obstacle.
         desired = []
         for k, gp in enumerate(grid_positions):
             path = paths[k]
@@ -181,13 +179,58 @@ class FollowerWrapperWithDetector(FollowerWrapper):
         self.last_positions = grid_positions
         self.last_desired = desired
         self.jam_stats.update(self.last_flagged, grid_positions)
+        return self.detector.deep_flagged
+
+    def _bake_paths(self, observations, paths):
+        """Bake (possibly redirected) per-agent paths into obs['obstacles'] exactly
+        like FollowerWrapper.observation (inference: intrinsic reward not needed)."""
+        new_goals = []
+        for k, path in enumerate(paths):
+            obs = observations[k]
+            if not path:
+                new_goals.append(obs['target_xy']); path = []
+            else:
+                new_goals.append(path[1] if len(path) >= 2 else obs['target_xy'])
+            obs['obstacles'][obs['obstacles'] > 0] *= -1
+            r = obs['obstacles'].shape[0] // 2
+            for (gx, gy) in path:
+                x, y = self.get_relative_xy(*obs['xy'], gx, gy, r)
+                if x is not None and y is not None:
+                    obs['obstacles'][x, y] = 1.0
+                else:
+                    break
+        self.prev_goals = new_goals
+        self.intrinsic_reward = [0.0] * len(observations)
+
+    def observation(self, observations):
+        if self.resolve and self.resolve_mode == 'waypoint':
+            # D1: redirect deeply-stuck agents' PATH toward PIBT's suggestion, then
+            # let the policy execute it (collision-aware) — no raw action override.
+            self.re_plan.update(observations)
+            paths = list(self.re_plan.get_path())
+            deep = self._run_detector(observations, paths)
+            if deep is not None and deep.any():
+                overrides, (n_jams, n_over) = resolve_jams(
+                    self.last_positions, self.last_desired, deep, self._obst_arr, min_jam=1)
+                for a, act in overrides.items():
+                    p = paths[a]
+                    if p:
+                        dx, dy = MOVES[act]
+                        p0 = tuple(p[0])
+                        paths[a] = [p0, (p0[0] + dx, p0[1] + dy)]   # redirect waypoint
+                self._resolve_calls += n_jams
+                self._resolve_overrides += n_over
+            self._bake_paths(observations, paths)
+            return observations
+        # detector-only, or raw-override mode (override applied in step())
+        observations = super().observation(observations)
+        paths = self.re_plan.get_path()
+        self._run_detector(observations, paths)
         return observations
 
     def step(self, action):
-        # Hand-back: override only DEEPLY-stuck agents (conservative engagement) with
-        # PIBT moves before stepping. Rare events -> minimal policy disruption.
         deep = self.detector.deep_flagged
-        if self.resolve and deep is not None and deep.any():
+        if self.resolve and self.resolve_mode == 'override' and deep is not None and deep.any():
             overrides, (n_jams, n_over) = resolve_jams(
                 self.last_positions, self.last_desired, deep, self._obst_arr, min_jam=1)
             action = list(action)
