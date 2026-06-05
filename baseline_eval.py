@@ -60,7 +60,7 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
-         resolve=False, resolve_t=30, resolve_k=6):
+         resolve=False, resolve_t=30, resolve_k=1):
     # --resolve implies --detector implies --deadlock so we always get the offline
     # ground-truth metric on the same episodes for comparison.
     detector = detector or resolve
@@ -117,7 +117,7 @@ if __name__ == '__main__':
     detector = False
     resolve = False
     resolve_t = 30
-    resolve_k = 6
+    resolve_k = 1   # 1 = single-step (validated method); >1 = multi-step ablation
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms

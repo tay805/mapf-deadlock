@@ -122,7 +122,7 @@ class FollowerWrapperWithDetector(FollowerWrapper):
     """FollowerWrapper + online DeadlockDetector run right after the planner."""
 
     def __init__(self, env, config, detector=None, resolve=False, resolve_mode='waypoint',
-                 resolve_k=6):
+                 resolve_k=1):
         super().__init__(env, config)
         self.detector = detector or DeadlockDetector()
         self.jam_stats = JamStats()
@@ -206,22 +206,30 @@ class FollowerWrapperWithDetector(FollowerWrapper):
 
     def observation(self, observations):
         if self.resolve and self.resolve_mode == 'waypoint':
-            # D1/B: replace deeply-stuck agents' PATH with a multi-step PIBT escape
-            # path, then let the policy execute it (collision-aware) — no raw override.
+            # OUR METHOD (validated): redirect deeply-stuck agents' next waypoint to
+            # PIBT's suggestion; the policy executes it (collision-aware) — no raw
+            # override. resolve_k>1 switches to the multi-step ablation (didn't help).
             self.re_plan.update(observations)
             paths = list(self.re_plan.get_path())
             deep = self._run_detector(observations, paths)
             if deep is not None and deep.any():
-                targets = [tuple(t) for t in self.grid.get_targets_xy()]
-                esc, (n_jams, n_over) = resolve_jams_paths(
-                    self.last_positions, targets, deep, self._obst_arr,
-                    K=self.resolve_k, min_jam=1)
-                for a, gpath in esc.items():
-                    obs_xy = tuple(observations[a]['xy'])
-                    g0 = gpath[0]
-                    # grid path -> obs/planner frame via deltas (frame-independent)
-                    paths[a] = [(obs_xy[0] + (c[0] - g0[0]), obs_xy[1] + (c[1] - g0[1]))
-                                for c in gpath]
+                if self.resolve_k > 1:   # multi-step ablation
+                    targets = [tuple(t) for t in self.grid.get_targets_xy()]
+                    esc, (n_jams, n_over) = resolve_jams_paths(
+                        self.last_positions, targets, deep, self._obst_arr,
+                        K=self.resolve_k, min_jam=1)
+                    for a, gpath in esc.items():
+                        obs_xy = tuple(observations[a]['xy']); g0 = gpath[0]
+                        paths[a] = [(obs_xy[0] + (c[0] - g0[0]), obs_xy[1] + (c[1] - g0[1]))
+                                    for c in gpath]
+                else:                    # single-step (default, validated)
+                    overrides, (n_jams, n_over) = resolve_jams(
+                        self.last_positions, self.last_desired, deep, self._obst_arr, min_jam=1)
+                    for a, act in overrides.items():
+                        p = paths[a]
+                        if p:
+                            dx, dy = MOVES[act]; p0 = tuple(p[0])
+                            paths[a] = [p0, (p0[0] + dx, p0[1] + dy)]
                 self._resolve_calls += n_jams
                 self._resolve_overrides += n_over
             self._bake_paths(observations, paths)
@@ -255,7 +263,7 @@ class FollowerWrapperWithDetector(FollowerWrapper):
 
 
 def make_follower_preprocessor_with_detector(resolve=False, resolve_t=30,
-                                             resolve_mode='waypoint', resolve_k=6):
+                                             resolve_mode='waypoint', resolve_k=1):
     def _preproc(env, algo_config):
         cfg = algo_config.training_config.preprocessing
         det = DeadlockDetector(resolve_t=resolve_t)
