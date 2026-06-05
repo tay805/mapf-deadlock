@@ -24,6 +24,7 @@ import numpy as np
 from follower.preprocessing import (
     FollowerWrapper, CutObservationWrapper, ConcatPositionalFeatures,
 )
+from deadlock_resolver import JamStats
 
 
 class DeadlockDetector:
@@ -118,12 +119,16 @@ class FollowerWrapperWithDetector(FollowerWrapper):
     def __init__(self, env, config, detector=None):
         super().__init__(env, config)
         self.detector = detector or DeadlockDetector()
+        self.jam_stats = JamStats()
         self.last_flagged = None
+        self.last_positions = None
 
     def reset_state(self):
         super().reset_state()
         self.detector.reset(len(self.get_global_agents_xy()))
+        self.jam_stats.reset(self.grid.get_obstacles().shape)
         self.last_flagged = None
+        self.last_positions = None
 
     def observation(self, observations):
         observations = super().observation(observations)   # runs planner + mutates obs
@@ -139,12 +144,19 @@ class FollowerWrapperWithDetector(FollowerWrapper):
             else:
                 next_wp.append(p); dists.append(None if not path else 0)
         self.last_flagged = self.detector.step(positions, goals, next_wp, dists, on_goal)
+        # Clustering/crops use grid-frame positions (same frame as grid_shape) to
+        # keep crop boxes valid; flagged is by agent id, so frames don't conflict.
+        grid_positions = [tuple(p) for p in self.grid.get_agents_xy()]
+        self.last_positions = grid_positions
+        self.jam_stats.update(self.last_flagged, grid_positions)
         return observations
 
     def step(self, action):
         obs, rew, done, tr, info = super().step(action)
         if all(done) or all(tr):
-            info[0].setdefault('metrics', {}).update(self.detector.finalize())
+            m = info[0].setdefault('metrics', {})
+            m.update(self.detector.finalize())
+            m.update(self.jam_stats.finalize())
         return obs, rew, done, tr, info
 
 
