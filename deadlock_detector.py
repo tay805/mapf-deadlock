@@ -250,10 +250,12 @@ class FollowerWrapperWithDetector(FollowerWrapper):
         return obs, rew, done, tr, info
 
 
-def make_follower_preprocessor_with_detector(resolve=False):
+def make_follower_preprocessor_with_detector(resolve=False, resolve_t=30, resolve_mode='waypoint'):
     def _preproc(env, algo_config):
         cfg = algo_config.training_config.preprocessing
-        env = FollowerWrapperWithDetector(env=env, config=cfg, resolve=resolve)
+        det = DeadlockDetector(resolve_t=resolve_t)
+        env = FollowerWrapperWithDetector(env=env, config=cfg, detector=det,
+                                          resolve=resolve, resolve_mode=resolve_mode)
         env = CutObservationWrapper(env, target_observation_radius=cfg.network_input_radius)
         env = ConcatPositionalFeatures(env)
         return env
