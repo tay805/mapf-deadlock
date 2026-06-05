@@ -17,8 +17,11 @@ Coordinates are grid-frame (x, y) matching grid.get_obstacles()/get_agents_xy().
 OBSTACLE=1, FREE=0.
 """
 import numpy as np
+from collections import deque
 
 NEI = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+
+_BC_CACHE = {}   # map-bytes -> set of top-betweenness cells
 
 
 def free_neighbors(obst, c):
@@ -90,6 +93,50 @@ def articulation_points(obst):
             is_ap[s] = True
 
     return {free[i] for i in range(n) if is_ap[i]}
+
+
+def high_betweenness_cells(obst, n_samples=128, top_frac=0.1, seed=0):
+    """Top-`top_frac` free cells by (sampled) shortest-path betweenness — the real
+    bottlenecks (cells many shortest paths pass through), beyond just narrow ones.
+    Sampled Brandes on the unweighted grid graph. Cached per map."""
+    key = obst.tobytes()
+    cached = _BC_CACHE.get(key)
+    if cached is not None:
+        return cached
+    h, w = obst.shape
+    free = [(x, y) for x in range(h) for y in range(w) if not obst[x, y]]
+    idx = {c: i for i, c in enumerate(free)}
+    n = len(free)
+    adj = [[idx[nb] for nb in free_neighbors(obst, c)] for c in free]
+    bc = np.zeros(n)
+    rng = np.random.default_rng(seed)
+    sources = rng.choice(n, size=min(n_samples, n), replace=False)
+    for s in sources:                      # Brandes single-source (unweighted)
+        S = []
+        P = [[] for _ in range(n)]
+        sigma = np.zeros(n); sigma[s] = 1
+        dist = np.full(n, -1); dist[s] = 0
+        Q = deque([s])
+        while Q:
+            v = Q.popleft(); S.append(v)
+            for u in adj[v]:
+                if dist[u] < 0:
+                    dist[u] = dist[v] + 1
+                    Q.append(u)
+                if dist[u] == dist[v] + 1:
+                    sigma[u] += sigma[v]
+                    P[u].append(v)
+        delta = np.zeros(n)
+        while S:
+            u = S.pop()
+            for v in P[u]:
+                delta[v] += (sigma[v] / sigma[u]) * (1 + delta[u])
+            if u != s:
+                bc[u] += delta[u]
+    k = max(1, int(top_frac * n))
+    top = set(free[i] for i in np.argsort(bc)[-k:])
+    _BC_CACHE[key] = top
+    return top
 
 
 def summarize(obst):

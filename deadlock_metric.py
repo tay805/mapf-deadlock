@@ -161,16 +161,21 @@ class DeadlockMetric(Wrapper):
         obst = (~self._free).astype(np.int8)        # OBSTACLE where not free
         ap = topology.articulation_points(obst)
         cor = topology.corridor_cells(obst)
+        btw = topology.high_betweenness_cells(obst)   # top-10% bottleneck cells
         free = max(1, int(self._free.sum()))
         tot = max(1, sum(self._heat.values()))
-        at_ap = sum(c for cell, c in self._heat.items() if cell in ap)
-        at_cor = sum(c for cell, c in self._heat.items() if cell in cor)
-        f_ap, f_cor = len(ap) / free, len(cor) / free
+
+        def lift(cells):
+            at = sum(c for cell, c in self._heat.items() if cell in cells)
+            base = len(cells) / free
+            return at / tot, base, (at / tot) / max(1e-9, base)
+
+        a_f, a_b, a_l = lift(ap)
+        c_f, c_b, c_l = lift(cor)
+        b_f, b_b, b_l = lift(btw)
         return {
-            'deadlock_at_articulation_frac': at_ap / tot,
-            'free_articulation_frac': f_ap,
-            'articulation_lift': (at_ap / tot) / max(1e-9, f_ap),
-            'deadlock_at_corridor_frac': at_cor / tot,
-            'free_corridor_frac': f_cor,
-            'corridor_lift': (at_cor / tot) / max(1e-9, f_cor),
+            'articulation_lift': a_l, 'free_articulation_frac': a_b,
+            'corridor_lift': c_l, 'free_corridor_frac': c_b,
+            'betweenness_lift': b_l, 'free_betweenness_frac': b_b,
+            'deadlock_at_betweenness_frac': b_f,
         }
