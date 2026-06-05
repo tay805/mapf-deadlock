@@ -49,10 +49,11 @@ def _bfs_dist(free, goal):
 
 
 class DeadlockMetric(Wrapper):
-    def __init__(self, env, thresholds=(5, 10, 20, 40), primary_t=10):
+    def __init__(self, env, thresholds=(5, 10, 20, 40), primary_t=10, topo=False):
         super().__init__(env)
         self.thresholds = tuple(sorted(set(thresholds) | {primary_t}))
         self.primary_t = primary_t
+        self.topo = topo   # also report WHERE deadlocks happen vs map topology
 
     def reset(self, seed=None, **kwargs):
         obs, info = self.env.reset(seed=seed, **kwargs)
@@ -92,6 +93,7 @@ class DeadlockMetric(Wrapper):
         self._run_len = np.zeros(n, dtype=np.int64)
         self._recovered = []
         self._unrecovered = 0
+        self._heat = {}        # grid cell -> count of deadlocked (counter>=T) agent-steps
 
     def step(self, action):
         obs, rew, term, trunc, infos = self.env.step(action)
@@ -129,6 +131,7 @@ class DeadlockMetric(Wrapper):
                 if c >= t:
                     self._dl_steps[t] += 1
             if c >= T:                             # recovery tracking at primary T
+                self._heat[p] = self._heat.get(p, 0) + 1   # WHERE the deadlock is
                 if not self._in_dl[i]:
                     self._in_dl[i] = True
                     self._run_len[i] = 0
@@ -146,4 +149,28 @@ class DeadlockMetric(Wrapper):
         n_runs = len(self._recovered) + self._unrecovered
         out['unrecovered_rate'] = (self._unrecovered / n_runs) if n_runs else 0.0
         out['deadlock_events_per_agent'] = n_runs / max(1, self._n)
+        if self.topo:
+            out.update(self._topo_concentration())
         return out
+
+    def _topo_concentration(self):
+        """Does deadlock concentrate at articulation points / corridor cells?
+        lift = (fraction of deadlock-steps at feature) / (fraction of free cells
+        that are feature). lift >> 1 => deadlock is predicted by static topology."""
+        import topology
+        obst = (~self._free).astype(np.int8)        # OBSTACLE where not free
+        ap = topology.articulation_points(obst)
+        cor = topology.corridor_cells(obst)
+        free = max(1, int(self._free.sum()))
+        tot = max(1, sum(self._heat.values()))
+        at_ap = sum(c for cell, c in self._heat.items() if cell in ap)
+        at_cor = sum(c for cell, c in self._heat.items() if cell in cor)
+        f_ap, f_cor = len(ap) / free, len(cor) / free
+        return {
+            'deadlock_at_articulation_frac': at_ap / tot,
+            'free_articulation_frac': f_ap,
+            'articulation_lift': (at_ap / tot) / max(1e-9, f_ap),
+            'deadlock_at_corridor_frac': at_cor / tot,
+            'free_corridor_frac': f_cor,
+            'corridor_lift': (at_cor / tot) / max(1e-9, f_cor),
+        }

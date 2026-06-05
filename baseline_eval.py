@@ -44,10 +44,12 @@ from deadlock_detector import (
 )
 
 
-def create_env_with_deadlock(config):
-    """create_env_base + our DeadlockMetric wrapper (adds deadlock_rate etc. to
-    infos[0]['metrics'], same channel as avg_throughput)."""
-    return DeadlockMetric(create_env_base(config))
+def make_create_env_with_deadlock(topo=False):
+    def create_env_with_deadlock(config):
+        """create_env_base + DeadlockMetric (adds deadlock_rate etc. to
+        infos[0]['metrics']; topo=True also reports topology concentration)."""
+        return DeadlockMetric(create_env_base(config), topo=topo)
+    return create_env_with_deadlock
 
 BASE_PATH = Path('experiments')
 ALL_FOLDERS = [
@@ -60,12 +62,12 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
-         resolve=False, resolve_t=30, resolve_k=1):
+         resolve=False, resolve_t=30, resolve_k=1, topo=False):
     # --resolve implies --detector implies --deadlock so we always get the offline
     # ground-truth metric on the same episodes for comparison.
     detector = detector or resolve
-    deadlock = deadlock or detector
-    env_factory = create_env_with_deadlock if deadlock else create_env_base
+    deadlock = deadlock or detector or topo
+    env_factory = make_create_env_with_deadlock(topo=topo) if deadlock else create_env_base
     if resolve:
         preproc = make_follower_preprocessor_with_detector(
             resolve=True, resolve_t=resolve_t, resolve_k=resolve_k)
@@ -118,6 +120,7 @@ if __name__ == '__main__':
     resolve = False
     resolve_t = 30
     resolve_k = 1   # 1 = single-step (validated method); >1 = multi-step ablation
+    topo = False
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -140,8 +143,10 @@ if __name__ == '__main__':
             resolve_t = int(a.split('=', 1)[1])
         elif a.startswith('--resolve-k='):
             resolve_k = int(a.split('=', 1)[1])
+        elif a == '--topo':
+            topo = True
         else:
             folders.append(a)
         i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir, deadlock=deadlock,
-         detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k)
+         detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k, topo=topo)
