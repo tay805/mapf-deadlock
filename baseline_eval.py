@@ -39,7 +39,9 @@ from follower.inference import FollowerInference, FollowerInferenceConfig
 from follower.preprocessing import follower_preprocessor
 
 from deadlock_metric import DeadlockMetric
-from deadlock_detector import follower_preprocessor_with_detector
+from deadlock_detector import (
+    follower_preprocessor_with_detector, follower_preprocessor_with_resolver,
+)
 
 
 def create_env_with_deadlock(config):
@@ -57,12 +59,18 @@ ALL_FOLDERS = [
 ]
 
 
-def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False):
-    # --detector implies --deadlock so we get the offline ground-truth metric on
-    # the same episodes to validate the online detector against.
+def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False, resolve=False):
+    # --resolve implies --detector implies --deadlock so we always get the offline
+    # ground-truth metric on the same episodes for comparison.
+    detector = detector or resolve
     deadlock = deadlock or detector
     env_factory = create_env_with_deadlock if deadlock else create_env_base
-    preproc = follower_preprocessor_with_detector if detector else follower_preprocessor
+    if resolve:
+        preproc = follower_preprocessor_with_resolver
+    elif detector:
+        preproc = follower_preprocessor_with_detector
+    else:
+        preproc = follower_preprocessor
     ToolboxRegistry.register_env('Pogema-v0', env_factory, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
@@ -105,6 +113,7 @@ if __name__ == '__main__':
     out_dir = None
     deadlock = False
     detector = False
+    resolve = False
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -121,8 +130,10 @@ if __name__ == '__main__':
             deadlock = True
         elif a == '--detector':
             detector = True
+        elif a == '--resolve':
+            resolve = True
         else:
             folders.append(a)
         i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir,
-         deadlock=deadlock, detector=detector)
+         deadlock=deadlock, detector=detector, resolve=resolve)

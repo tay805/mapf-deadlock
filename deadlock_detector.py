@@ -24,7 +24,7 @@ import numpy as np
 from follower.preprocessing import (
     FollowerWrapper, CutObservationWrapper, ConcatPositionalFeatures,
 )
-from deadlock_resolver import JamStats
+from deadlock_resolver import JamStats, resolve_jams
 
 
 class DeadlockDetector:
@@ -116,19 +116,30 @@ class DeadlockDetector:
 class FollowerWrapperWithDetector(FollowerWrapper):
     """FollowerWrapper + online DeadlockDetector run right after the planner."""
 
-    def __init__(self, env, config, detector=None):
+    def __init__(self, env, config, detector=None, resolve=False):
         super().__init__(env, config)
         self.detector = detector or DeadlockDetector()
         self.jam_stats = JamStats()
+        self.resolve = resolve
         self.last_flagged = None
         self.last_positions = None
+        self.last_desired = None
+        self._obst_arr = None
+        self._resolve_calls = 0      # jams resolved over the episode
+        self._resolve_overrides = 0  # agent-steps whose action we overrode
+        self._steps = 0
 
     def reset_state(self):
         super().reset_state()
         self.detector.reset(len(self.get_global_agents_xy()))
         self.jam_stats.reset(self.grid.get_obstacles().shape)
+        self._obst_arr = self.grid.get_obstacles()
         self.last_flagged = None
         self.last_positions = None
+        self.last_desired = None
+        self._resolve_calls = 0
+        self._resolve_overrides = 0
+        self._steps = 0
 
     def observation(self, observations):
         observations = super().observation(observations)   # runs planner + mutates obs
@@ -144,25 +155,61 @@ class FollowerWrapperWithDetector(FollowerWrapper):
             else:
                 next_wp.append(p); dists.append(None if not path else 0)
         self.last_flagged = self.detector.step(positions, goals, next_wp, dists, on_goal)
-        # Clustering/crops use grid-frame positions (same frame as grid_shape) to
-        # keep crop boxes valid; flagged is by agent id, so frames don't conflict.
+        # Clustering/crops/PIBT use grid-frame positions (same frame as obstacles)
+        # so crop boxes/moves are valid; flagged is by agent id, frames don't conflict.
         grid_positions = [tuple(p) for p in self.grid.get_agents_xy()]
+        # Desired next cell per agent = grid pos + planner's first step (path[1]-path[0],
+        # frame-independent). Guard: only a unit step, and not onto an obstacle.
+        desired = []
+        for k, gp in enumerate(grid_positions):
+            path = paths[k]
+            dxy = (0, 0)
+            if path and len(path) >= 2:
+                dxy = (path[1][0] - path[0][0], path[1][1] - path[0][1])
+                if abs(dxy[0]) + abs(dxy[1]) != 1:
+                    dxy = (0, 0)
+            cell = (gp[0] + dxy[0], gp[1] + dxy[1])
+            h, w = self._obst_arr.shape
+            if not (0 <= cell[0] < h and 0 <= cell[1] < w) or self._obst_arr[cell]:
+                cell = gp
+            desired.append(cell)
         self.last_positions = grid_positions
+        self.last_desired = desired
         self.jam_stats.update(self.last_flagged, grid_positions)
         return observations
 
     def step(self, action):
+        # Hand-back: override flagged agents' actions with PIBT moves before stepping.
+        if self.resolve and self.last_flagged is not None and self.last_flagged.any():
+            overrides, (n_jams, n_over) = resolve_jams(
+                self.last_positions, self.last_desired, self.last_flagged, self._obst_arr)
+            action = list(action)
+            for a, act in overrides.items():
+                action[a] = act
+            self._resolve_calls += n_jams
+            self._resolve_overrides += n_over
+        self._steps += 1
         obs, rew, done, tr, info = super().step(action)
         if all(done) or all(tr):
             m = info[0].setdefault('metrics', {})
             m.update(self.detector.finalize())
             m.update(self.jam_stats.finalize())
+            if self.resolve:
+                m['resolver_jams_per_step'] = self._resolve_calls / max(1, self._steps)
+                m['resolver_override_rate'] = self._resolve_overrides / max(1, self._steps * len(action))
         return obs, rew, done, tr, info
 
 
-def follower_preprocessor_with_detector(env, algo_config):
-    cfg = algo_config.training_config.preprocessing
-    env = FollowerWrapperWithDetector(env=env, config=cfg)
-    env = CutObservationWrapper(env, target_observation_radius=cfg.network_input_radius)
-    env = ConcatPositionalFeatures(env)
-    return env
+def make_follower_preprocessor_with_detector(resolve=False):
+    def _preproc(env, algo_config):
+        cfg = algo_config.training_config.preprocessing
+        env = FollowerWrapperWithDetector(env=env, config=cfg, resolve=resolve)
+        env = CutObservationWrapper(env, target_observation_radius=cfg.network_input_radius)
+        env = ConcatPositionalFeatures(env)
+        return env
+    return _preproc
+
+
+# detector-only (no action override) and detector+resolver variants
+follower_preprocessor_with_detector = make_follower_preprocessor_with_detector(resolve=False)
+follower_preprocessor_with_resolver = make_follower_preprocessor_with_detector(resolve=True)

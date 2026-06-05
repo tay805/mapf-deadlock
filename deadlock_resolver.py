@@ -9,6 +9,11 @@ agents close together. We:
 
 Pure functions here; the env wrapper calls them. PIBT + hand-back come next.
 """
+from pibt import pibt_solve
+
+# POGEMA action index -> (dx, dy)  (grid_config.MOVES) and its inverse.
+MOVES = [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]
+ACTION_OF = {m: i for i, m in enumerate(MOVES)}
 
 
 def cluster_jams(flagged_idx, positions, link_radius=2):
@@ -50,6 +55,46 @@ def agents_in_box(positions, box):
     """All agent ids whose cell lies inside the crop box (the local problem)."""
     x0, y0, x1, y1 = box
     return [i for i, (x, y) in enumerate(positions) if x0 <= x <= x1 and y0 <= y <= y1]
+
+
+def resolve_jams(grid_pos, desired, flagged_bool, obst_arr,
+                 margin=3, link_radius=2, min_jam=2):
+    """Targeted resolver: for each *multi-agent* jam (>= min_jam flagged agents),
+    run PIBT over ONLY the flagged agents, treating bystanders in the crop as
+    static obstacles (PIBT routes around them; we don't override healthy agents'
+    policy actions). Returns (overrides {agent: action_index}, (num_jams, num_overrides)).
+
+    grid_pos : list agent->(x,y) (grid frame, same frame as obst_arr).
+    desired  : list agent->(x,y) preferred next cell (planner waypoint, grid frame).
+    flagged_bool : per-agent bool from the detector.
+    obst_arr : 2D obstacle grid (OBSTACLE=1/FREE=0), same frame as grid_pos.
+    """
+    flagged_idx = [i for i, f in enumerate(flagged_bool) if f]
+    if not flagged_idx:
+        return {}, (0, 0)
+    grid_shape = obst_arr.shape
+    jams = [j for j in cluster_jams(flagged_idx, grid_pos, link_radius) if len(j) >= min_jam]
+    overrides = {}
+    flagged_set = set(flagged_idx)
+    for jam in jams:
+        box = crop_box(jam, grid_pos, margin, grid_shape)
+        x0, y0, x1, y1 = box
+        in_crop = agents_in_box(grid_pos, box)
+        jam_agents = [a for a in in_crop if a in jam]            # only flagged -> PIBT-controlled
+        bystanders = [grid_pos[a] for a in in_crop if a not in flagged_set]
+        pos = {a: grid_pos[a] for a in jam_agents}
+        goals = {a: desired[a] for a in jam_agents}
+        obst = {(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)
+                if obst_arr[x, y]}
+        obst.update(bystanders)                                 # healthy agents = static blockers
+        nxt = pibt_solve(pos, goals, obst, box)
+        for a in jam_agents:
+            dx = nxt[a][0] - grid_pos[a][0]
+            dy = nxt[a][1] - grid_pos[a][1]
+            act = ACTION_OF.get((dx, dy))
+            if act is not None:
+                overrides[a] = act
+    return overrides, (len(jams), len(overrides))
 
 
 class JamStats:
