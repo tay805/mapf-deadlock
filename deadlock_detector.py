@@ -28,10 +28,12 @@ from deadlock_resolver import JamStats, resolve_jams
 
 
 class DeadlockDetector:
-    def __init__(self, t1=10, t2=8, warmup=10):
-        self.t1 = t1            # non-progress budget
+    def __init__(self, t1=10, t2=8, warmup=10, resolve_t=30):
+        self.t1 = t1            # non-progress budget (detection / flagging)
         self.t2 = t2            # stall budget
         self.warmup = warmup
+        self.resolve_t = resolve_t  # stricter budget: only RESOLVE deeply-stuck agents
+        self.deep_flagged = None
         self.n = None
 
     def reset(self, n):
@@ -92,8 +94,11 @@ class DeadlockDetector:
         if self._step > self.warmup:
             trig_np = self._np_counter >= self.t1
             trig_st = self._stall >= self.t2
+            # "deeply stuck" = candidates the resolver may act on (conservative).
+            self.deep_flagged = (self._np_counter >= self.resolve_t) | (self._stall >= self.resolve_t)
         else:
             trig_fo[:] = False
+            self.deep_flagged = np.zeros(n, dtype=bool)
 
         flagged = trig_np | trig_st | trig_fo
         self._tot += n
@@ -179,10 +184,12 @@ class FollowerWrapperWithDetector(FollowerWrapper):
         return observations
 
     def step(self, action):
-        # Hand-back: override flagged agents' actions with PIBT moves before stepping.
-        if self.resolve and self.last_flagged is not None and self.last_flagged.any():
+        # Hand-back: override only DEEPLY-stuck agents (conservative engagement) with
+        # PIBT moves before stepping. Rare events -> minimal policy disruption.
+        deep = self.detector.deep_flagged
+        if self.resolve and deep is not None and deep.any():
             overrides, (n_jams, n_over) = resolve_jams(
-                self.last_positions, self.last_desired, self.last_flagged, self._obst_arr)
+                self.last_positions, self.last_desired, deep, self._obst_arr, min_jam=1)
             action = list(action)
             for a, act in overrides.items():
                 action[a] = act
