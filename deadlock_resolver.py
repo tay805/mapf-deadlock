@@ -97,6 +97,45 @@ def resolve_jams(grid_pos, desired, flagged_bool, obst_arr,
     return overrides, (len(jams), len(overrides))
 
 
+def resolve_jams_paths(grid_pos, targets, flagged_bool, obst_arr,
+                       K=6, margin=4, link_radius=2, min_jam=1):
+    """Multi-step resolver: for each jam, simulate PIBT forward K steps over the
+    flagged agents (heading toward their real targets; bystanders = static), and
+    return a K+1 cell ESCAPE PATH per flagged agent (grid frame). The wrapper bakes
+    these as waypoints the policy tracks. Multi-step lets PIBT plan coordinated
+    maneuvers (e.g. back up to let another pass) that single-step can't.
+
+    grid_pos, targets : list agent->(x,y) (grid frame; targets = grid.get_targets_xy()).
+    Returns ({agent: [cell,...]}, (num_jams, num_agents_planned)).
+    """
+    flagged_idx = [i for i, f in enumerate(flagged_bool) if f]
+    if not flagged_idx:
+        return {}, (0, 0)
+    grid_shape = obst_arr.shape
+    flagged_set = set(flagged_idx)
+    jams = [j for j in cluster_jams(flagged_idx, grid_pos, link_radius) if len(j) >= min_jam]
+    paths = {}
+    for jam in jams:
+        box = crop_box(jam, grid_pos, margin, grid_shape)
+        x0, y0, x1, y1 = box
+        in_crop = agents_in_box(grid_pos, box)
+        jam_agents = [a for a in in_crop if a in jam]
+        bystanders = [grid_pos[a] for a in in_crop if a not in flagged_set]
+        obst = {(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)
+                if obst_arr[x, y]}
+        obst.update(bystanders)
+        cur = {a: grid_pos[a] for a in jam_agents}
+        goals = {a: targets[a] for a in jam_agents}
+        acc = {a: [cur[a]] for a in jam_agents}
+        for _ in range(K):
+            nxt = pibt_solve(cur, goals, obst, box)
+            for a in jam_agents:
+                cur[a] = nxt[a]
+                acc[a].append(nxt[a])
+        paths.update(acc)
+    return paths, (len(jams), len(paths))
+
+
 class JamStats:
     """Accumulates per-step jam statistics over an episode (validation of stage 1):
     how many jams form, how big, how large the crops, how many agents involved."""
