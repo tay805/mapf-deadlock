@@ -64,7 +64,7 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
-         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze'):
+         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze', route=False, route_strength=4.0):
     # --resolve implies --detector implies --deadlock so we always get the offline
     # ground-truth metric on the same episodes for comparison.
     detector = detector or resolve
@@ -75,6 +75,9 @@ def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
             resolve=True, resolve_t=resolve_t, resolve_k=resolve_k)
     elif detector:
         preproc = follower_preprocessor_with_detector
+    elif route:
+        from routing_baseline import make_routing_preprocessor
+        preproc = make_routing_preprocessor(strength=route_strength)
     else:
         preproc = follower_preprocessor
     if meter is not None:   # cap active agents (rest park); applied outermost
@@ -133,6 +136,8 @@ if __name__ == '__main__':
     topo = False
     meter = None
     meter_mode = 'freeze'
+    route = False
+    route_strength = 4.0
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -161,9 +166,13 @@ if __name__ == '__main__':
             meter = int(a.split('=', 1)[1])
         elif a.startswith('--meter-mode='):
             meter_mode = a.split('=',1)[1]
+        elif a == '--route':
+            route = True
+        elif a.startswith('--route-strength='):
+            route_strength = float(a.split('=',1)[1])
         else:
             folders.append(a)
         i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir, deadlock=deadlock,
          detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k,
-         topo=topo, meter=meter, meter_mode=meter_mode)
+         topo=topo, meter=meter, meter_mode=meter_mode, route=route, route_strength=route_strength)
