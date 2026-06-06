@@ -11,11 +11,15 @@ agents active; the rest "park". Two variants:
 The static cap M is a proof-of-concept; the adaptive, deadlock-metric-driven
 controller that picks M online is the actual contribution.
 """
+import sys
 from collections import deque
 
 import gymnasium
 
 from deadlock_resolver import MOVES
+
+sys.setrecursionlimit(30000)   # pogema _revert_action recurses per move-chain
+                               # (deep at high agent density); set in-process here
 
 
 def _bfs_field(obst, goal):
@@ -65,6 +69,74 @@ class HideMeterWrapper(gymnasium.Wrapper):
         for i in range(self.m, n):
             self.grid.hide_agent(i)          # despawn -> off-grid depot
         return obs, info
+
+
+class AdaptiveMeterWrapper(gymnasium.Wrapper):
+    """Closed-loop density controller. Starts all-active and SELF-TUNES the number
+    of active agents online to maximize throughput — no prior knowledge of the peak.
+    Signal = recent throughput (hill-climb); when reducing, it hides the MOST
+    DEADLOCKED agents (longest since reaching a goal) — directly removing the jam.
+    Uses pogema hide_agent/show_agent (off-grid depot)."""
+
+    def __init__(self, env, m0=None, ctrl_interval=20, step=48, m_min=32):
+        super().__init__(env)
+        self.m0 = m0
+        self.ctrl_interval = ctrl_interval
+        self.step_size = step
+        self.m_min = m_min
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self.n = len(self.grid.get_agents_xy())
+        self.M = self.n if self.m0 is None else min(self.m0, self.n)
+        self.hidden = set()
+        self.since_goal = [0] * self.n
+        self.t = 0
+        self.win_goals = 0
+        self.last_tp = None
+        self.shedding = True     # monotone: only SHED agents (never reactivate)
+        self.M_trace = []
+        self._apply_M()
+        return obs, info
+
+    def _apply_M(self):
+        # Only hide (shed) the most-deadlocked active agents down to M. Monotone
+        # decreasing -> active count stays <= start, bounding move-chain recursion.
+        active = [i for i in range(self.n) if i not in self.hidden]
+        if len(active) > self.M:
+            order = sorted(active, key=lambda i: -self.since_goal[i])
+            for i in order[:len(active) - self.M]:
+                if self.grid.hide_agent(i):
+                    self.hidden.add(i)
+
+    def step(self, action):
+        obs, rew, term, trunc, info = self.env.step(action)
+        self.t += 1
+        wog = self.was_on_goal
+        for i in range(self.n):
+            if i in self.hidden:
+                continue
+            if wog[i]:
+                self.since_goal[i] = 0
+                self.win_goals += 1
+            else:
+                self.since_goal[i] += 1
+        if self.t % self.ctrl_interval == 0:           # control update
+            tp = self.win_goals / self.ctrl_interval
+            if self.shedding:
+                if self.last_tp is not None and tp < self.last_tp - 1e-9:
+                    self.shedding = False              # throughput dropped -> hold
+                elif self.M > self.m_min:
+                    self.M -= self.step_size           # keep shedding while it helps
+            self.last_tp = tp
+            self.win_goals = 0
+            self.M_trace.append(self.M)
+            self._apply_M()
+        if (all(term) or all(trunc)):
+            info[0].setdefault('metrics', {})['final_active_M'] = self.M
+            info[0]['metrics']['mean_active_M'] = (
+                sum(self.M_trace) / len(self.M_trace) if self.M_trace else self.M)
+        return obs, rew, term, trunc, info
 
 
 class ParkingMeterWrapper(gymnasium.Wrapper):

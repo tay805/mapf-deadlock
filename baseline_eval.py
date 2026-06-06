@@ -26,6 +26,8 @@ matplotlib.use('Agg')
 
 import shutil
 import sys
+sys.setrecursionlimit(20000)    # pogema _revert_action recurses per move-chain;
+                                # ~384 active is safe, ~640 overflows the C stack
 from pathlib import Path
 
 import yaml
@@ -76,11 +78,13 @@ def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
     else:
         preproc = follower_preprocessor
     if meter is not None:   # cap active agents (rest park); applied outermost
-        from metering import MeterWrapper, ParkingMeterWrapper, HideMeterWrapper
-        W = HideMeterWrapper if meter_mode=='hide' else (ParkingMeterWrapper if meter_mode=='park' else MeterWrapper)
-        base_preproc = preproc
-        def preproc(env, algo_config, _bp=base_preproc):
-            return W(_bp(env, algo_config), meter)
+        from metering import MeterWrapper, ParkingMeterWrapper, HideMeterWrapper, AdaptiveMeterWrapper
+        W = {'hide':HideMeterWrapper,'park':ParkingMeterWrapper}.get(meter_mode, MeterWrapper)
+        _preproc_base = preproc
+        if meter_mode=='adaptive':
+            def preproc(env, algo_config, _bp=_preproc_base): return AdaptiveMeterWrapper(_bp(env, algo_config), m0=meter)
+        else:
+            def preproc(env, algo_config, _bp=_preproc_base): return W(_bp(env, algo_config), meter)
     ToolboxRegistry.register_env('Pogema-v0', env_factory, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
