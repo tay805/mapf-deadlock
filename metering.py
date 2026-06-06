@@ -100,14 +100,24 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
         return obs, info
 
     def _apply_M(self):
-        # Only hide (shed) the most-deadlocked active agents down to M. Monotone
-        # decreasing -> active count stays <= start, bounding move-chain recursion.
+        # Hide the most-deadlocked active agents down to M; or reactivate from the
+        # depot up to M (used to revert a one-step overshoot past the peak).
         active = [i for i in range(self.n) if i not in self.hidden]
         if len(active) > self.M:
             order = sorted(active, key=lambda i: -self.since_goal[i])
             for i in order[:len(active) - self.M]:
                 if self.grid.hide_agent(i):
                     self.hidden.add(i)
+        elif len(active) < self.M:
+            need = self.M - len(active)
+            for i in list(self.hidden):
+                if need <= 0:
+                    break
+                try:
+                    if self.grid.show_agent(i):
+                        self.hidden.discard(i); need -= 1
+                except KeyError:
+                    pass                               # cell occupied -> skip
 
     def step(self, action):
         obs, rew, term, trunc, info = self.env.step(action)
@@ -125,7 +135,8 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
             tp = self.win_goals / self.ctrl_interval
             if self.shedding:
                 if self.last_tp is not None and tp < self.last_tp - 1e-9:
-                    self.shedding = False              # throughput dropped -> hold
+                    self.M = min(self.n, self.M + self.step_size)  # revert overshoot
+                    self.shedding = False                          # ...and hold at peak
                 elif self.M > self.m_min:
                     self.M -= self.step_size           # keep shedding while it helps
             self.last_tp = tp
