@@ -1,0 +1,1 @@
+[{"metrics": {"avg_throughput": 1.935546875}, "env_grid_search": {"num_agents": 384, "seed": 0}, "algorithm": "Follower"}, {"metrics": {"avg_throughput": 1.9140625}, "env_grid_search": {"num_agents": 384, "seed": 1}, "algorithm": "Follower"}, {"metrics": {"avg_throughput": 1.91796875}, "env_grid_search": {"num_agents": 384, "seed": 2}, "algorithm": "Follower"}]
