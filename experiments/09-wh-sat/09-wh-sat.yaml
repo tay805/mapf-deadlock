@@ -1,0 +1,16 @@
+environment:
+  name: Pogema-v0
+  on_target: restart
+  max_episode_steps: 512
+  observation_type: POMAPF
+  collision_system: soft
+  map_name: wfi_warehouse
+  num_agents:
+    grid_search: [ 96, 128, 160, 192, 224 ]
+  seed:
+    grid_search: [ 0 ]
+algorithms:
+  Follower:
+    name: Follower
+    num_process: 4
+    parallel_backend: 'sequential'
