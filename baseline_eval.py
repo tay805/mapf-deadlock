@@ -62,7 +62,7 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
-         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None):
+         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze'):
     # --resolve implies --detector implies --deadlock so we always get the offline
     # ground-truth metric on the same episodes for comparison.
     detector = detector or resolve
@@ -76,10 +76,11 @@ def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
     else:
         preproc = follower_preprocessor
     if meter is not None:   # cap active agents (rest park); applied outermost
-        from metering import MeterWrapper
+        from metering import MeterWrapper, ParkingMeterWrapper, HideMeterWrapper
+        W = HideMeterWrapper if meter_mode=='hide' else (ParkingMeterWrapper if meter_mode=='park' else MeterWrapper)
         base_preproc = preproc
         def preproc(env, algo_config, _bp=base_preproc):
-            return MeterWrapper(_bp(env, algo_config), meter)
+            return W(_bp(env, algo_config), meter)
     ToolboxRegistry.register_env('Pogema-v0', env_factory, Environment)
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
@@ -127,6 +128,7 @@ if __name__ == '__main__':
     resolve_k = 1   # 1 = single-step (validated method); >1 = multi-step ablation
     topo = False
     meter = None
+    meter_mode = 'freeze'
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -153,9 +155,11 @@ if __name__ == '__main__':
             topo = True
         elif a.startswith('--meter='):
             meter = int(a.split('=', 1)[1])
+        elif a.startswith('--meter-mode='):
+            meter_mode = a.split('=',1)[1]
         else:
             folders.append(a)
         i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir, deadlock=deadlock,
          detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k,
-         topo=topo, meter=meter)
+         topo=topo, meter=meter, meter_mode=meter_mode)

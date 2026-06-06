@@ -95,9 +95,8 @@ def articulation_points(obst):
     return {free[i] for i in range(n) if is_ap[i]}
 
 
-def high_betweenness_cells(obst, n_samples=128, top_frac=0.1, seed=0):
-    """Top-`top_frac` free cells by (sampled) shortest-path betweenness — the real
-    bottlenecks (cells many shortest paths pass through), beyond just narrow ones.
+def betweenness_scores(obst, n_samples=128, seed=0):
+    """(free_cells, bc_array) — sampled shortest-path betweenness per free cell.
     Sampled Brandes on the unweighted grid graph. Cached per map."""
     key = obst.tobytes()
     cached = _BC_CACHE.get(key)
@@ -133,10 +132,22 @@ def high_betweenness_cells(obst, n_samples=128, top_frac=0.1, seed=0):
                 delta[v] += (sigma[v] / sigma[u]) * (1 + delta[u])
             if u != s:
                 bc[u] += delta[u]
-    k = max(1, int(top_frac * n))
-    top = set(free[i] for i in np.argsort(bc)[-k:])
-    _BC_CACHE[key] = top
-    return top
+    _BC_CACHE[key] = (free, bc)
+    return free, bc
+
+
+def high_betweenness_cells(obst, top_frac=0.1, **kw):
+    """Top-`top_frac` free cells by betweenness (the real bottlenecks)."""
+    free, bc = betweenness_scores(obst, **kw)
+    k = max(1, int(top_frac * len(free)))
+    return set(free[i] for i in np.argsort(bc)[-k:])
+
+
+def low_betweenness_cells(obst, k, **kw):
+    """The k LOWEST-betweenness free cells — least-traffic spots, good for parking."""
+    free, bc = betweenness_scores(obst, **kw)
+    k = min(k, len(free))
+    return [free[i] for i in np.argsort(bc)[:k]]
 
 
 def summarize(obst):
