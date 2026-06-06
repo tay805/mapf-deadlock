@@ -12,3 +12,9 @@ Findings:
 - Routing = FRAGILE (fails in delocalized regime; helps only localized).
 - Adaptive controller self-tunes to ~peak active count on both (den520d ~288 / peak 256; mazes ~372 / peak 384) without prior knowledge; matches static.
 - Infra limits: warehouse caps at 192 spawns (can't over-saturate); pogema move-recursion segfaults at very high active density (≥~640).
+
+## Phase transition (3 seeds) — betweenness lift vs agents (lift>>1 = localized; ~1 = delocalized)
+| map | 64 | 128 | 256 | reading |
+|---|---|---|---|---|
+| den520d | 1.8x | 3.1x | 1.1x (dl 31%) | localized -> DELOCALIZES at saturation |
+| Paris_1 | 6.4x | 4.8x | 3.2x (dl 6%) | stays localized (never saturates) |
