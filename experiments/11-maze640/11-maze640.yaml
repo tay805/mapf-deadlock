@@ -8,7 +8,7 @@ environment:
   num_agents:
     grid_search: [ 640 ]
   seed:
-    grid_search: [ 0 ]
+    grid_search: [ 0, 1, 2 ]
 algorithms:
   Follower:
     name: Follower
