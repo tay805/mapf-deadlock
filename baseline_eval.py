@@ -32,6 +32,7 @@ from pathlib import Path
 
 import yaml
 
+import pogema_patch  # noqa: F401 — makes pogema move-revert iterative (no segfault)
 from pogema import BatchAStarAgent
 from pogema_toolbox.create_env import create_env_base, Environment
 from pogema_toolbox.evaluator import evaluation
