@@ -64,7 +64,7 @@ ALL_FOLDERS = [
 ]
 
 
-def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
+def main(folders, max_seeds=None, single_seed=None, out_dir=None, deadlock=False, detector=False,
          resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze', route=False, route_strength=4.0):
     # --resolve implies --detector implies --deadlock so we always get the offline
     # ground-truth metric on the same episodes for comparison.
@@ -112,7 +112,9 @@ def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
             k: v for k, v in cfg['algorithms'].items() if v.get('name') != 'FollowerLite'
         }
         # Optionally limit to the first N seeds for a fast first-pass baseline.
-        if max_seeds is not None:
+        if single_seed is not None:
+            cfg['environment']['seed'] = {'grid_search': [single_seed]}
+        elif max_seeds is not None:
             seeds = cfg['environment'].get('seed')
             if isinstance(seeds, dict) and 'grid_search' in seeds:
                 seeds['grid_search'] = seeds['grid_search'][:max_seeds]
@@ -128,6 +130,7 @@ def main(folders, max_seeds=None, out_dir=None, deadlock=False, detector=False,
 if __name__ == '__main__':
     args = sys.argv[1:]
     max_seeds = None
+    single_seed = None
     out_dir = None
     deadlock = False
     detector = False
@@ -147,6 +150,8 @@ if __name__ == '__main__':
             max_seeds = int(a.split('=', 1)[1])
         elif a == '--seeds':
             i += 1; max_seeds = int(args[i])
+        elif a.startswith('--seed='):
+            single_seed = int(a.split('=', 1)[1])
         elif a.startswith('--out='):
             out_dir = a.split('=', 1)[1]
         elif a == '--out':
@@ -174,6 +179,6 @@ if __name__ == '__main__':
         else:
             folders.append(a)
         i += 1
-    main(folders or ALL_FOLDERS, max_seeds=max_seeds, out_dir=out_dir, deadlock=deadlock,
+    main(folders or ALL_FOLDERS, max_seeds=max_seeds, single_seed=single_seed, out_dir=out_dir, deadlock=deadlock,
          detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k,
          topo=topo, meter=meter, meter_mode=meter_mode, route=route, route_strength=route_strength)
