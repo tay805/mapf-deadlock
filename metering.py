@@ -11,6 +11,7 @@ agents active; the rest "park". Two variants:
 The static cap M is a proof-of-concept; the adaptive, deadlock-metric-driven
 controller that picks M online is the actual contribution.
 """
+import os
 import sys
 from collections import deque
 
@@ -132,6 +133,13 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
             else:
                 self.since_goal[i] += 1
         if self.t % self.ctrl_interval == 0:           # control update
+            if os.environ.get('POGEMA_REVERT_DEBUG') == '1':
+                import pogema_patch
+                active_n = sum(1 for i in range(self.n) if i not in self.hidden)
+                print(f"[adaptive] t={self.t} M={self.M} active={active_n} "
+                      f"shedding={self.shedding} hidden={len(self.hidden)} "
+                      f"revert_cycles={pogema_patch._stats['cycles']} "
+                      f"max_chain={pogema_patch._stats['max_chain']}", flush=True)
             tp = self.win_goals / self.ctrl_interval
             if self.shedding:
                 if self.last_tp is not None and tp < self.last_tp - 1e-9:
