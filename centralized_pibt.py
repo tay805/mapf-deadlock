@@ -15,6 +15,14 @@ centralized PIBT. Goal BFS fields are cached across steps (the map is static), g
 Scientific point: if even a centralized planner with perfect global information
 collapses at over-saturation (and cannot match density control), the bottleneck is
 DENSITY, not decentralization --- which is exactly our thesis.
+
+CAVEAT (why this is a quick probe, not the paper's centralized baseline): this minimal
+PIBT is a crop-resolver primitive. Run full-grid at high density its priority-
+inheritance backtracking thrashes; the `max_calls` cap below bounds per-step cost but
+makes the high-density throughput budget-sensitive (non-monotonic), so it is NOT a
+faithful centralized solver there. Stable and informative only up to ~the peak (e.g.
+den520d@256: 2.78, beating Follower's 2.32). The paper's centralized baseline is the
+REAL LaCAM run via notebooks/lacam_baseline.ipynb (reviewer S3).
 """
 import gymnasium
 
@@ -41,7 +49,8 @@ class CentralizedPIBTWrapper(gymnasium.Wrapper):
     def step(self, action):
         pos = {i: tuple(p) for i, p in enumerate(self.grid.get_agents_xy())}
         goals = {i: tuple(g) for i, g in enumerate(self.grid.get_targets_xy())}
-        nxt = pibt_solve(pos, goals, self._obst, self._bounds, fields=self._fields)
+        nxt = pibt_solve(pos, goals, self._obst, self._bounds, fields=self._fields,
+                         max_calls=40 * self._n)   # cap backtracking so a dense step can't thrash
         pibt_action = [0] * self._n
         for a in range(self._n):
             c = nxt.get(a)

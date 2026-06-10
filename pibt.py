@@ -39,7 +39,7 @@ def _bfs_field(goal, passable, bounds):
     return dist
 
 
-def pibt_solve(pos, goals, obstacles, bounds, priority=None, fields=None):
+def pibt_solve(pos, goals, obstacles, bounds, priority=None, fields=None, max_calls=None):
     x0, y0, x1, y1 = bounds
     agents = list(pos)
     occ = set(obstacles)
@@ -71,6 +71,11 @@ def pibt_solve(pos, goals, obstacles, bounds, priority=None, fields=None):
 
     nxt = {}          # agent -> chosen next cell (decided)
     taken = set()     # next cells already reserved
+    # Priority-inheritance backtracking is worst-case exponential; at high density a
+    # single step can thrash. Cap total pibt() calls per solve and let unresolved
+    # agents stay. None = unlimited (small crops, exact). Centralized full-grid passes
+    # a budget so per-step cost stays bounded.
+    budget = [max_calls if max_calls is not None else float('inf')]
 
     def candidates(a):
         px, py = pos[a]
@@ -81,6 +86,14 @@ def pibt_solve(pos, goals, obstacles, bounds, priority=None, fields=None):
 
     def pibt(ai, aj):
         """Try to give ai a valid move. aj = higher-priority caller (for swap guard)."""
+        budget[0] -= 1
+        if budget[0] < 0:                           # out of budget -> treat as immovable
+            p = pos[ai]
+            if p in taken:
+                return False
+            nxt[ai] = p
+            taken.add(p)
+            return False
         for v in candidates(ai):
             if v in taken:                          # vertex conflict
                 continue
