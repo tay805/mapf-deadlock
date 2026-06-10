@@ -39,7 +39,7 @@ def _bfs_field(goal, passable, bounds):
     return dist
 
 
-def pibt_solve(pos, goals, obstacles, bounds, priority=None):
+def pibt_solve(pos, goals, obstacles, bounds, priority=None, fields=None):
     x0, y0, x1, y1 = bounds
     agents = list(pos)
     occ = set(obstacles)
@@ -51,7 +51,10 @@ def pibt_solve(pos, goals, obstacles, bounds, priority=None):
         return c not in occ
 
     # Obstacle-aware distance fields within the crop (one BFS per distinct goal).
-    fields = {}
+    # Pass a persistent dict as `fields` to cache across calls (valid when bounds and
+    # obstacles are fixed, e.g. a centralized full-grid solver over a static map).
+    if fields is None:
+        fields = {}
     for a in agents:
         g = goals[a]
         if g not in fields:

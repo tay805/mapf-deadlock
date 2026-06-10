@@ -65,11 +65,13 @@ ALL_FOLDERS = [
 
 
 def main(folders, max_seeds=None, single_seed=None, out_dir=None, deadlock=False, detector=False,
-         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze', route=False, route_strength=4.0):
+         resolve=False, resolve_t=30, resolve_k=1, topo=False, meter=None, meter_mode='freeze', route=False, route_strength=4.0,
+         central_pibt=False):
     # --resolve implies --detector implies --deadlock so we always get the offline
-    # ground-truth metric on the same episodes for comparison.
+    # ground-truth metric on the same episodes for comparison. --central-pibt also
+    # gets the deadlock metric so the centralized baseline is on both axes (S3).
     detector = detector or resolve
-    deadlock = deadlock or detector or topo
+    deadlock = deadlock or detector or topo or central_pibt
     env_factory = make_create_env_with_deadlock(topo=topo) if deadlock else create_env_base
     if resolve:
         preproc = make_follower_preprocessor_with_detector(
@@ -93,6 +95,11 @@ def main(folders, max_seeds=None, single_seed=None, out_dir=None, deadlock=False
     ToolboxRegistry.register_algorithm('A*', BatchAStarAgent)
     ToolboxRegistry.register_algorithm(
         'Follower', FollowerInference, FollowerInferenceConfig, preproc)
+    if central_pibt:    # S3: centralized full-grid PIBT baseline (env-wrapper override)
+        from centralized_pibt import CentralizedPIBTWrapper, StayAgent
+        ToolboxRegistry.register_algorithm(
+            'CentralPIBT', StayAgent, None,
+            lambda env: CentralizedPIBTWrapper(env))
 
     with open('env/test-maps.yaml') as f:
         ToolboxRegistry.register_maps(yaml.safe_load(f))
@@ -111,6 +118,14 @@ def main(folders, max_seeds=None, single_seed=None, out_dir=None, deadlock=False
         cfg['algorithms'] = {
             k: v for k, v in cfg['algorithms'].items() if v.get('name') != 'FollowerLite'
         }
+        if central_pibt:    # run ONLY the centralized PIBT baseline on this config
+            base = next(iter(cfg['algorithms'].values()), {})
+            cfg['algorithms'] = {'CentralPIBT': {
+                'name': 'CentralPIBT',
+                'num_process': base.get('num_process', 1),
+                'parallel_backend': base.get('parallel_backend', 'sequential'),
+                'preprocessing': 'central',   # truthy -> evaluator applies our env wrapper
+            }}
         # Optionally limit to the first N seeds for a fast first-pass baseline.
         if single_seed is not None:
             cfg['environment']['seed'] = {'grid_search': [single_seed]}
@@ -142,6 +157,7 @@ if __name__ == '__main__':
     meter_mode = 'freeze'
     route = False
     route_strength = 4.0
+    central_pibt = False
     folders = []
     i = 0
     while i < len(args):  # accept both "--opt=val" and "--opt val" forms
@@ -176,9 +192,12 @@ if __name__ == '__main__':
             route = True
         elif a.startswith('--route-strength='):
             route_strength = float(a.split('=',1)[1])
+        elif a == '--central-pibt':
+            central_pibt = True
         else:
             folders.append(a)
         i += 1
     main(folders or ALL_FOLDERS, max_seeds=max_seeds, single_seed=single_seed, out_dir=out_dir, deadlock=deadlock,
          detector=detector, resolve=resolve, resolve_t=resolve_t, resolve_k=resolve_k,
-         topo=topo, meter=meter, meter_mode=meter_mode, route=route, route_strength=route_strength)
+         topo=topo, meter=meter, meter_mode=meter_mode, route=route, route_strength=route_strength,
+         central_pibt=central_pibt)

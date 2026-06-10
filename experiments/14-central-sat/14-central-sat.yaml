@@ -1,0 +1,16 @@
+environment:
+  name: Pogema-v0
+  on_target: restart
+  max_episode_steps: 512
+  observation_type: POMAPF
+  collision_system: soft
+  map_name: den520d
+  num_agents:
+    grid_search: [ 128, 256, 384, 512, 640 ]
+  seed:
+    grid_search: [ 0, 1, 2 ]
+algorithms:
+  Follower:
+    name: Follower
+    num_process: 1
+    parallel_backend: 'sequential'
