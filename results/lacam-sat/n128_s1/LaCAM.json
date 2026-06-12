@@ -1,0 +1,1 @@
+[{"metrics": {"avg_throughput": 2.62109375}, "env_grid_search": {"num_agents": 128, "seed": 1}, "algorithm": "LaCAM"}]
