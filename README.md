@@ -9,7 +9,13 @@
 
 **Learn to Follow: Lifelong Multi-agent Pathfinding with Decentralized Replanning**
 
-</div> 
+</div>
+
+> **This fork** adds a deadlock metric, a two-regime congestion characterization, a
+> detect-and-resolve ablation, and density control (static + adaptive metering) plus a
+> centralized LaCAM baseline, on top of Follower. **See [REPRODUCE.md](REPRODUCE.md)**
+> for setup and commands to reproduce every result.
+
 
 This study addresses the challenging problem of decentralized lifelong multi-agent pathfinding. The proposed **Follower** 
 approach utilizes a combination of a planning algorithm for constructing a long-term plan and reinforcement learning
