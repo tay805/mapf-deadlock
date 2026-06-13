@@ -149,6 +149,16 @@ class DeadlockMetric(Wrapper):
         n_runs = len(self._recovered) + self._unrecovered
         out['unrecovered_rate'] = (self._unrecovered / n_runs) if n_runs else 0.0
         out['deadlock_events_per_agent'] = n_runs / max(1, self._n)
+        # Deadlock-run-length distribution (S6 false-positive analysis): a run that
+        # recovers within a few steps past the T budget is a transient detour/yield
+        # (a candidate false positive); long/unrecovered runs are true jams. We also
+        # report what share of all deadlock agent-steps comes from short vs long runs.
+        r = np.array(self._recovered, dtype=float) if self._recovered else np.zeros(1)
+        out['dl_run_median'] = float(np.median(r))
+        out['dl_run_p90'] = float(np.percentile(r, 90))
+        out['dl_run_frac_le5'] = float(np.mean(r <= 5))      # transient (yield/detour-like)
+        out['dl_run_steps_in_short'] = float(r[r <= 5].sum())
+        out['dl_run_steps_in_long'] = float(r[r > 5].sum())  # persistent share of dl-steps
         if self.topo:
             out.update(self._topo_concentration())
         return out

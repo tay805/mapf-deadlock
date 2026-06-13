@@ -97,6 +97,7 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
         self.last_tp = None
         self.shedding = True     # monotone: only SHED agents (never reactivate)
         self.M_trace = []
+        self._hidden_steps = [0] * self.n   # N2: per-agent time spent at the depot
         self._apply_M()
         return obs, info
 
@@ -123,6 +124,8 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
     def step(self, action):
         obs, rew, term, trunc, info = self.env.step(action)
         self.t += 1
+        for i in self.hidden:                 # N2: accrue depot wait
+            self._hidden_steps[i] += 1
         wog = self.was_on_goal
         for i in range(self.n):
             if i in self.hidden:
@@ -152,9 +155,18 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
             self.M_trace.append(self.M)
             self._apply_M()
         if (all(term) or all(trunc)):
-            info[0].setdefault('metrics', {})['final_active_M'] = self.M
-            info[0]['metrics']['mean_active_M'] = (
+            m = info[0].setdefault('metrics', {})
+            m['final_active_M'] = self.M
+            m['mean_active_M'] = (
                 sum(self.M_trace) / len(self.M_trace) if self.M_trace else self.M)
+            # N2: latency/fairness of metering — per-agent depot wait (steps hidden).
+            import numpy as _np
+            hs = _np.array(self._hidden_steps, dtype=float)
+            denom = max(1, self.t)
+            m['depot_wait_mean_frac'] = float(hs.mean() / denom)          # avg fraction of episode parked
+            m['depot_wait_p95_frac'] = float(_np.percentile(hs, 95) / denom)
+            m['depot_wait_max_frac'] = float(hs.max() / denom)            # tail latency
+            m['frac_ever_parked'] = float((hs > 0).mean())                # how concentrated the shedding is
         return obs, rew, term, trunc, info
 
 
