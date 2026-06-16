@@ -159,6 +159,7 @@ class AdaptiveMeterWrapper(gymnasium.Wrapper):
             m['final_active_M'] = self.M
             m['mean_active_M'] = (
                 sum(self.M_trace) / len(self.M_trace) if self.M_trace else self.M)
+            m['M_trace'] = list(self.M_trace)   # M at each control update (for the trajectory plot)
             # N2: latency/fairness of metering — per-agent depot wait (steps hidden).
             import numpy as _np
             hs = _np.array(self._hidden_steps, dtype=float)

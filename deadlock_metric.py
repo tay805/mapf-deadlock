@@ -20,6 +20,7 @@ Definition of the per-agent counter (O(1)/step):
   each step: d = dist(pos); if d < best_dist -> progress, counter=0; else counter+=1.
   on goal change (lifelong arrival) -> recompute, reset. on-goal -> counter=0.
 """
+import os
 from collections import deque, OrderedDict
 
 import numpy as np
@@ -161,6 +162,13 @@ class DeadlockMetric(Wrapper):
         out['dl_run_steps_in_long'] = float(r[r > 5].sum())  # persistent share of dl-steps
         if self.topo:
             out.update(self._topo_concentration())
+        if os.environ.get('SAVE_HEATMAP'):    # dump per-cell stuck counts for the heatmap fig
+            import numpy as _np
+            obst = self.grid.get_obstacles()
+            heat = _np.zeros(obst.shape, dtype=float)
+            for (x, y), c in self._heat.items():
+                heat[x, y] = c
+            _np.savez(f'/tmp/heat_{self._n}.npz', heat=heat, obst=_np.asarray(obst))
         return out
 
     def _topo_concentration(self):
