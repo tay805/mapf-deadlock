@@ -169,3 +169,6 @@ experiments/*.zip
 
 # private working plan (kept outside the repo; this is a safety net)
 PLAN.md
+
+# eval archive bundles in results (regenerable from per-folder JSON)
+results/**/*.zip
