@@ -1,179 +1,128 @@
 <div align="center">
 
-[![Example](https://raw.githubusercontent.com/Tviskaron/pogema-svg/main/learn-to-follow-ep00001-lab-maze_010-seed0.svg)](https://github.com/AIRI-Institute/learn-to-follow) 
+# Deadlocks in Dense Lifelong MAPF
+### A Journey from Why to Adaptive Density Control
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1CnC47qbc4Z3sHfiR6sIX0ngXi6UfTx8o?usp=sharing)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/AIRI-Institute/learn-to-follow/blob/main/LICENSE)
-[![arXiv](https://img.shields.io/badge/arXiv-2310.01207-b31b1b.svg)](https://arxiv.org/abs/2310.01207)
-[![Paper](https://img.shields.io/badge/AAAI-2024-blue)](https://ojs.aaai.org/index.php/AAAI/article/view/29704)
-
-**Learn to Follow: Lifelong Multi-agent Pathfinding with Decentralized Replanning**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Benchmark: POGEMA](https://img.shields.io/badge/benchmark-POGEMA-green.svg)](https://github.com/AIRI-Institute/pogema)
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/)
 
 </div>
 
-> **This fork** adds a deadlock metric, a two-regime congestion characterization, a
-> detect-and-resolve ablation, and density control (static + adaptive metering) plus a
-> centralized LaCAM baseline, on top of Follower. **See [REPRODUCE.md](REPRODUCE.md)**
-> for setup and commands to reproduce every result.
+In dense lifelong Multi-Agent Path Finding (MAPF), throughput rises with agent
+density, reaches a peak, and then collapses. Throughput on its own reports that a
+system has stalled without explaining why. This repository turns that failure
+into something measurable and then acts on it, through a three-stage pipeline
+that measures deadlock, locates it in space, and meters the number of active
+agents online.
 
+This is the code and data release for the paper *Deadlocks in Dense Lifelong
+MAPF: A Journey from Why to Adaptive Density Control*.
 
-This study addresses the challenging problem of decentralized lifelong multi-agent pathfinding. The proposed **Follower** 
-approach utilizes a combination of a planning algorithm for constructing a long-term plan and reinforcement learning
-for resolving local conflicts.
+## Contributions
 
-**Paper:** [Learn to Follow: Decentralized Lifelong Multi-agent Pathfinding via Planning and Learning
-](https://arxiv.org/abs/2310.01207)
+1. **A deadlock metric for learned lifelong MAPF.** A per-agent stuck signal
+   built from breadth-first non-progress, reported as a deadlock rate, a
+   recovery time, an unrecovered fraction, and a per-cell spatial heatmap. It is
+   implemented as a policy-agnostic wrapper and validated causally against a
+   known jamming perturbation.
+2. **A two-regime characterization.** A betweenness-lift order parameter that
+   shows deadlock concentrating at a few bottlenecks below saturation and
+   dispersing across the workspace once the system saturates. The transition is
+   driven by congestion severity rather than by map topology and holds across
+   four maps.
+3. **A mechanistic negative result.** In the delocalized regime, both
+   detect-and-resolve and congestion-aware routing fail to recover throughput,
+   validated against a released Guided-PIBT solver and set against a centralized
+   LaCAM reference.
+4. **Adaptive Density Control (ADC).** A closed-loop controller that self-tunes
+   the active-agent count online from the same deadlock signal, remaining
+   effective where local repair and centralized search are not.
 
+## Installation
 
-
-## Installation:
-
-```bash
-pip3 install -r docker/requirements.txt
-```
-
-
-Installation of ONNX runtime:
-```bash
-wget https://github.com/microsoft/onnxruntime/releases/download/v1.14.1/onnxruntime-linux-x64-1.14.1.tgz \
-    && tar -xf onnxruntime-linux-x64-1.14.1.tgz \
-    && cp onnxruntime-linux-x64-1.14.1/lib/* /usr/lib/ && cp onnxruntime-linux-x64-1.14.1/include/* /usr/include/
-```
-
-Optionally, you could use the Dockerfile to build the image:
-```bash
-cd docker && sh build.sh
-```
-
-## Inference Example:
-
-To execute the **Follower** algorithm and produce an animation using pre-trained weights, use the following command:
+The project targets Python 3.10. Create a virtual environment and install the
+dependencies:
 
 ```bash
-python3 example.py
+python3.10 -m venv .venv && . .venv/bin/activate
+pip install --prefer-binary \
+  pogema==1.3.0 pogema-toolbox==0.1.0 sample-factory==2.1.1 \
+  torch==1.13.1 'numpy<=1.23.1' 'pandas<=1.4' 'pydantic<2' \
+  pyyaml 'dask==2024.8.0' 'distributed==2024.8.0' loguru cppimport 'pybind11==2.13.1' \
+  matplotlib seaborn tabulate
 ```
 
-The animation will be stored in the `renders` folder.
+The base policy runs on CPU and compiles `follower_cpp/planner.cpp` through
+cppimport, which needs pybind11 and a C++ compiler. The `notebooks/` folder
+holds Colab and Kaggle runners for the same experiments.
 
-It's recommended to set environment variable to restrict Numpy CPU threads to 1,  avoiding performance issues:
+To restrict NumPy CPU threads and avoid a common slowdown:
 
 ```bash
-export OMP_NUM_THREADS="1" 
-export MKL_NUM_THREADS="1" 
-export OPENBLAS_NUM_THREADS="1"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 ```
 
-You can adjust the environment and algorithm parameter using arguments. For example:
-```
-python3 example.py --map_name wfi_warehouse --num_agents 128
-python3 example.py --map_name pico_s00_od20_na32 --num_agents 32 --algorithm FollowerLite
-```
+## Usage
 
-
-We offer a Google Colab example that simplifies the process:
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1CnC47qbc4Z3sHfiR6sIX0ngXi6UfTx8o?usp=sharing)
-
-
-## Training:
-
-To train **Follower** from scratch, use the following command:
+`baseline_eval.py` is the runner. It reads `experiments/<folder>/<folder>.yaml`,
+runs the grid, and writes a per-config result JSON plus a plot. Runs are
+per-folder resumable.
 
 ```bash
-python3 main.py  --actor_critic_share_weights=True --batch_size=16384 --env=PogemaMazes-v0 --exploration_loss_coeff=0.023 --extra_fc_layers=1 --gamma=0.9756 --hidden_size=512 --intrinsic_target_reward=0.01 --learning_rate=0.00022 --lr_schedule=constant --network_input_radius=5 --num_filters=64 --num_res_blocks=8 --num_workers=8 --optimizer=adam --ppo_clip_ratio=0.2   --train_for_env_steps=1000000000 --use_rnn=True
+# Baseline throughput across the map families
+python baseline_eval.py
+
+# Deadlock metric (rate, recovery, run length, thresholds T in {5,10,20,40})
+python baseline_eval.py --deadlock
+
+# Two-regime betweenness lift across maps
+python baseline_eval.py --topo 12-phase-den312d 13-phase-boston
+
+# Detect-and-resolve ablation
+python baseline_eval.py --resolve 08-val
+
+# Density control: static cap and adaptive self-tuning
+python baseline_eval.py --meter=256 --meter-mode=hide     08-val
+python baseline_eval.py --meter=384 --meter-mode=adaptive 08-val
 ```
 
-To train **FollowerLite** from scratch, use the following command:
-```bash
-python3 main.py  --actor_critic_share_weights=True --batch_size=16384 --env=PogemaMazes-v0 --exploration_loss_coeff=0.0156 --extra_fc_layers=0 --gamma=0.9716 --hidden_size=16 --intrinsic_target_reward=0.01 --learning_rate=0.00013 --lr_schedule=kl_adaptive_minibatch --network_input_radius=3 --num_filters=8 --num_res_blocks=1 --num_workers=4 --optimizer=adam --ppo_clip_ratio=0.2     --train_for_env_steps=20000000 --use_rnn=False
-```
-The parameters are set to the values used in the paper.
+Run `python baseline_eval.py --help` for the full flag table.
 
-### Testing and Results Visualization 
-To reproduce the main results of **Follower** and **FollowerLite** using [pogema-toolbox](https://github.com/AIRI-Institute/pogema-toolbox), use the following command:
-```bash
-python3 eval.py
-```
-This script will run all the experiments, the configurations for which are placed in the experiments folder. The raw data will be saved in the corresponding folders (including plots) and optionally saved to wandb.
+## Repository layout
 
-#### Example Configuration:
+| Path | Role |
+|---|---|
+| `baseline_eval.py` | Evaluation runner and command-line flags |
+| `deadlock_metric.py` | Breadth-first non-progress metric, run length, topology lift |
+| `deadlock_detector.py`, `deadlock_resolver.py`, `pibt.py` | Detect-and-resolve pipeline |
+| `topology.py` | Articulation, corridor, and betweenness analysis |
+| `metering.py` | Static (`hide`, `freeze`, `park`) and `adaptive` density control |
+| `routing_baseline.py` | Congestion-routing proxy, a betweenness penalty in A* |
+| `centralized_pibt.py`, `lacam_run.py` | Centralized probes and the LaCAM baseline |
+| `pogema_patch.py` | Cycle-safe move resolution for high-density runs |
+| `phase_aggregate.py` | Aggregates `--topo` runs into lift versus density |
+| `experiments/` | Scenario configurations |
+| `results/` | Committed result bundles, each with a summary |
+| `notebooks/` | Colab and Kaggle runners |
 
-```yaml
-environment:
-  name: Pogema-v0
-  on_target: restart
-  max_episode_steps: 512
-  observation_type: POMAPF
-  collision_system: soft  
-  map_name: wfi_warehouse
-  num_agents:
-    grid_search: [ 32, 64, 96, 128, 160, 192 ]
-  seed:
-    grid_search: [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+## Hardware and software
 
-algorithms:
-  Follower:
-    name: Follower
-    num_process: 4
-    parallel_backend: 'balanced_dask'
+The experiments were run on Google Colab using an NVIDIA T4 GPU with a 32 GB
+high-RAM runtime, with local development on a MacBook M1 Pro with 16 GB of RAM.
+All code targets Python 3.10. The base policy is pure Python and runs on CPU, so
+a GPU is optional for evaluation and is used mainly to accelerate the centralized
+and notebook baselines.
 
+## Base policy and benchmark
 
-  No dynamic cost:
-    name: Follower
-    num_process: 4
-    parallel_backend: 'balanced_dask'
-    
-    override_config:
-      preprocessing:
-        use_dynamic_cost: False
+All experiments run on [POGEMA](https://github.com/AIRI-Institute/pogema) in
+lifelong mode (`on_target:restart`, `POMAPF` observations, soft collisions,
+horizon 512). The intervention wraps a single fixed decentralized base policy,
+and every comparison changes only the wrapper, which removes the cross-codebase
+confounds common in MAPF evaluation. The base checkpoint is committed under
+`model/`.
 
-  No static cost:
-    name: Follower
-    num_process: 4
-    num_threads: 4
-    parallel_backend: 'balanced_dask'
-    
-    override_config:
-      preprocessing:
-        use_static_cost: False
+## License
 
-results_views:
-  TabularResults:
-    type: tabular
-    drop_keys: [ seed ]
-    print_results: True
-
-  05-warehouse:
-    type: plot
-    x: num_agents
-    y: avg_throughput
-    name: Warehouse $46 \times 33$
-```
-
-#### Description of Configuration:
-
-The configuration defines the environment settings and the algorithms used for the experiments. It specifies the following:
-- **Environment**: Includes parameters of the POGEMA environment, behavior on target (restart, corresponding to LifeLong), maximum episode steps (512), observation type, collision system, etc. It also sets up grid searches for the number of agents and seed values. The `grid_search` can be used for any environment parameter.
-- **Algorithms**: Details the algorithms to be tested. The primary algorithm is **Follower**. Variants include "No dynamic cost" and "No static cost," which override specific preprocessing configurations. All algorithms are configurable to use `4` processes and the `balanced_dask` backend for parallelization, enhancing computational efficiency.
-- **Results Views**: Defines how the results will be presented, including tabular and plot views.
-
-This example configuration demonstrates how to set up experiments for the Pogema-v0 environment, varying the number of agents and seeds, and comparing different versions of the Follower algorithm.
-#### Raw Data
-
-The raw data, comprising the results of our experiments for Follower and FollowerLite, can be downloaded from the following link:
-[Download Raw Data](https://github.com/AIRI-Institute/learn-to-follow/releases/download/v0/learn-to-follow-raw-data.zip)
-
-
-## Citation:
-
-```bibtex
-@inproceedings{skrynnik2024learn,
-  title={Learn to Follow: Decentralized Lifelong Multi-Agent Pathfinding via Planning and Learning},
-  author={Skrynnik, Alexey and Andreychuk, Anton and Nesterova, Maria and Yakovlev, Konstantin and Panov, Aleksandr},
-  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
-  volume={38},
-  number={16},
-  pages={17541--17549},
-  year={2024}
-}
-```
-
+Released under the MIT License. See [LICENSE](LICENSE).
